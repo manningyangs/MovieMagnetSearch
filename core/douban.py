@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import re
@@ -217,17 +218,87 @@ class DoubanClient:
     # ---------- 详情 ----------
 
     def get_detail(self, douban_id: str) -> Optional[DoubanDetail]:
-        """根据豆瓣 ID 拉详情页（评分、简介、导演、短评等）。"""
+        """根据豆瓣 ID 拉详情页（评分、简介、导演、短评等）。
+
+        豆瓣详情页现在有 SHA-512 PoW 反爬挑战 —— 若 GET 回来的是 PoW 表单，
+        就用 Python 重算 nonce 后 POST 到 sec.douban.com/c 走 302 回原页。
+        """
         if not douban_id:
             return None
         url = f"https://movie.douban.com/subject/{douban_id}/"
+
+        # 预热：先 GET 电影首页，让豆瓣 session 下发 bid cookie
+        try:
+            self._session.get(
+                "https://movie.douban.com/",
+                headers=_DETAIL_HEADERS, timeout=self._timeout,
+            )
+        except Exception:
+            pass
+
         try:
             resp = self._session.get(url, headers=_DETAIL_HEADERS, timeout=self._timeout)
             resp.raise_for_status()
+            html_text = resp.text
         except Exception as e:
             print(f"[Douban] detail failed {douban_id}: {e}")
             return None
-        return self._parse_detail_page(resp.text, douban_id, url)
+
+        # 检测 PoW 挑战页
+        if "载入中" in html_text and 'name="cha"' in html_text:
+            html_text = self._solve_pow_and_retry(url, html_text)
+            if not html_text:
+                return None
+
+        return self._parse_detail_page(html_text, douban_id, url)
+
+    def _solve_pow_and_retry(self, subject_url: str, pow_html: str) -> Optional[str]:
+        """从 PoW 表单中提取 cha/tok/red，算 nonce，POST 回 sec.douban.com/c，
+        跟进 302 拿到真正的详情页 HTML。"""
+        m_tok = re.search(r'name="tok"[^>]*value="([^"]+)"', pow_html)
+        m_cha = re.search(r'name="cha"[^>]*value="([^"]+)"', pow_html)
+        m_red = re.search(r'name="red"[^>]*value="([^"]+)"', pow_html)
+        if not all([m_tok, m_cha, m_red]):
+            return None
+        tok, cha, red = m_tok.group(1), m_cha.group(1), m_red.group(1)
+
+        # SHA-512 PoW：找最小 nonce 使 hash(cha + nonce) 前 4 个字符为 0
+        nonce = 0
+        while True:
+            nonce += 1
+            h = hashlib.sha512((cha + str(nonce)).encode()).hexdigest()
+            if h.startswith("0000"):
+                break
+
+        try:
+            # POST 到 sec.douban.com/c，跟进 302 拿详情页
+            resp = self._session.post(
+                "https://sec.douban.com/c",
+                data={"tok": tok, "cha": cha, "sol": str(nonce), "red": red},
+                headers=_DETAIL_HEADERS,
+                timeout=self._timeout,
+                allow_redirects=True,
+            )
+            resp.raise_for_status()
+            if "v:itemreviewed" in resp.text:
+                return resp.text
+        except Exception as e:
+            print(f"[Douban] PoW POST failed: {e}")
+
+        # 降级：试试直接 POST 到原 subject URL
+        try:
+            resp = self._session.post(
+                subject_url,
+                data={"tok": tok, "cha": cha, "sol": str(nonce), "red": red},
+                headers={**_DETAIL_HEADERS, "Content-Type": "application/x-www-form-urlencoded"},
+                timeout=self._timeout,
+                allow_redirects=True,
+            )
+            if "v:itemreviewed" in resp.text:
+                return resp.text
+        except Exception as e:
+            print(f"[Douban] PoW fallback POST failed: {e}")
+        return None
 
     def _parse_detail_page(self, html_text: str, douban_id: str, url: str) -> DoubanDetail:
         soup = BeautifulSoup(html_text, "html.parser")
@@ -300,7 +371,7 @@ class DoubanClient:
 
     def _parse_short_comments(self, soup: BeautifulSoup, max_n: int = 5) -> List[dict]:
         out: List[dict] = []
-        for c in soup.select("#comments .comment-item")[:max_n]:
+        for c in soup.select(".comment-item")[:max_n]:
             user_a = c.select_one(".comment-info a")
             user = user_a.text.strip() if user_a else ""
             rating = 0.0
@@ -314,7 +385,8 @@ class DoubanClient:
                     if m:
                         rating = int(m.group(1)) / 10 * 5
                         break
-            content_span = c.select_one(".comment-content .short")
+            content_span = c.select_one(".comment .short") or c.select_one(".comment-content .short")
             content = content_span.text.strip() if content_span else ""
-            out.append({"user": user, "rating": rating, "content": content})
+            if content:
+                out.append({"user": user, "rating": rating, "content": content})
         return out

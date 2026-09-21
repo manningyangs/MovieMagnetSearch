@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QStatusBar,
+    QTabWidget,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -89,11 +90,22 @@ class MainWindow(QMainWindow):
         self._build_ui()
 
     def _build_ui(self) -> None:
+        from ui.douban_tab import DoubanTab
+
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
         root.setContentsMargins(10, 10, 10, 10)
         root.setSpacing(8)
+
+        # Tab 容器
+        self.tabs = QTabWidget()
+
+        # ====== Tab 1: 磁力搜索 ======
+        torrent_tab = QWidget()
+        torrent_root = QVBoxLayout(torrent_tab)
+        torrent_root.setContentsMargins(4, 4, 4, 4)
+        torrent_root.setSpacing(8)
 
         # 搜索栏
         bar = QHBoxLayout()
@@ -117,7 +129,7 @@ class MainWindow(QMainWindow):
         bar.addWidget(self.search_btn)
         bar.addWidget(self.stop_btn)
         bar.addWidget(self.settings_btn)
-        root.addLayout(bar)
+        torrent_root.addLayout(bar)
 
         # 搜索进度提示
         prog_row = QHBoxLayout()
@@ -130,7 +142,7 @@ class MainWindow(QMainWindow):
         self.progress_bar.setTextVisible(False)
         prog_row.addWidget(self.progress_label, 1)
         prog_row.addWidget(self.progress_bar)
-        root.addLayout(prog_row)
+        torrent_root.addLayout(prog_row)
 
         # 结果区：用叠层切换表格 vs 分组树
         from PySide6.QtWidgets import QStackedLayout
@@ -146,12 +158,29 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self.tree)
 
         self._stack.setCurrentIndex(0)  # 默认电影
-        root.addWidget(self.results_stack, 1)
+        torrent_root.addWidget(self.results_stack, 1)
+
+        self.tabs.addTab(torrent_tab, "🔍 磁力搜索")
+
+        # ====== Tab 2: 豆瓣发现 ======
+        self.douban_tab = DoubanTab()
+        self.douban_tab.search_requested.connect(self._on_douban_search_requested)
+        self.tabs.addTab(self.douban_tab, "🎬 豆瓣发现")
+
+        root.addWidget(self.tabs, 1)
 
         # 状态栏
         self.status = QStatusBar()
         self.setStatusBar(self.status)
         self.status.showMessage("就绪。输入片名开始搜索。")
+
+    def _on_douban_search_requested(self, title: str) -> None:
+        """豆瓣卡片的"搜磁力"按钮 → 切到磁力 Tab 并自动搜索。"""
+        self.input.setText(title)
+        self.tabs.setCurrentIndex(0)
+        # 轻微延迟让 Tab 切换先生效
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(50, self._do_search)
 
     def _build_tv_tree(self) -> QTreeWidget:
         from PySide6.QtWidgets import QHeaderView

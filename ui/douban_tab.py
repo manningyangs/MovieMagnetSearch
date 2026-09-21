@@ -477,7 +477,7 @@ class DoubanTab(QWidget):
         for movie in items_this_page:
             if movie.douban_id in self._cards_by_id:
                 continue
-            card = MovieCard(movie, self._covers)
+            card = MovieCard(movie, self._covers, parent=self.list_widget)
             card.search_requested.connect(self.search_requested.emit)
             card.detail_requested.connect(self._on_detail_requested)
             self._cards_by_id[movie.douban_id] = card
@@ -516,7 +516,7 @@ class DoubanTab(QWidget):
         # 按正确顺序重新插入
         self._cards_by_id.clear()
         for movie in items_sorted:
-            card = MovieCard(movie, self._covers)
+            card = MovieCard(movie, self._covers, parent=self.list_widget)
             card.search_requested.connect(self.search_requested.emit)
             card.detail_requested.connect(self._on_detail_requested)
             self._cards_by_id[movie.douban_id] = card

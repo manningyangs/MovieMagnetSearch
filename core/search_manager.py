@@ -146,6 +146,7 @@ class SearchManager(QObject):
     search_started = Signal(int)  # 本次启用的搜索源总数
     source_progress = Signal(int, int)  # 已完成源数, 源总数
     source_finished = Signal(str, int, str)  # name, count, error
+    partial_results = Signal(list)       # 增量：每次有新源返回非空，emit 累计聚合（未评分）
     search_finished = Signal(list)
     search_failed = Signal(str)
 
@@ -253,6 +254,7 @@ class SearchManager(QObject):
     def _poll(self) -> None:
         self._elapsed += self._timer.interval()
         # 收集已完成的 future
+        new_positive = False  # 本次 poll 里是否出现了新的非空结果
         done = [f for f in self._futures if f.done()]
         for f in done:
             try:
@@ -263,9 +265,14 @@ class SearchManager(QObject):
             if results:
                 self._aggregated.extend(results)
                 self._positive_count += 1
+                new_positive = True
             self._futures.remove(f)
         done_count = self._total - len(self._futures)
         self.source_progress.emit(done_count, self._total)
+
+        # 增量推 UI：有新非空结果就把累计聚合发出去（未评分未去重，UI 原样展示）
+        if new_positive:
+            self.partial_results.emit(list(self._aggregated))
 
         # 判断条件：全部完成 / 超时(35s) / 用户停止 / 已有足够结果提前收
         if self._canceled or not self._futures or self._elapsed > 35000:

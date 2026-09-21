@@ -83,6 +83,7 @@ class MainWindow(QMainWindow):
         self.search_manager.search_started.connect(self._on_search_started)
         self.search_manager.source_progress.connect(self._on_source_progress)
         self.search_manager.source_finished.connect(self._on_source_finished)
+        self.search_manager.partial_results.connect(self._on_partial_results)
         self.search_manager.search_finished.connect(self._on_search_finished)
         self.search_manager.search_failed.connect(self._on_search_failed)
         self._total_sources = 0
@@ -260,6 +261,12 @@ class MainWindow(QMainWindow):
             self.status.showMessage(f"{name} 失败: {error}")
         else:
             self.status.showMessage(f"{name} 完成，命中 {count} 条")
+
+    def _on_partial_results(self, aggregated: List[TorrentResult]) -> None:
+        """增量预览：有新源返回非空结果就刷新 UI（未去重未评分，最终版在 search_finished）。"""
+        if self._mode == "movie":
+            self.table.set_results(aggregated)
+            self.progress_label.setText(f"搜索中… 已收到 {len(aggregated)} 条（实时预览）")
 
     def _on_search_finished(self, results: List[TorrentResult]) -> None:
         self._set_search_running(False)

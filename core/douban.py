@@ -84,21 +84,36 @@ class DoubanClient:
     # ---------- Top 250 ----------
 
     def get_top250(self, limit: int = 250) -> List[DoubanMovie]:
-        """爬取豆瓣 Top 250 榜单。"""
+        """爬取豆瓣 Top 250 榜单（10 页并行抓取）。"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         results: List[DoubanMovie] = []
         per_page = 25
         pages = min(10, (limit + per_page - 1) // per_page)
-        for page in range(pages):
-            offset = page * per_page
+
+        def _fetch(page_idx: int):
+            offset = page_idx * per_page
             url = f"https://movie.douban.com/top250?start={offset}"
             try:
                 resp = self._session.get(url, headers=_TOP250_HEADERS, timeout=self._timeout)
                 resp.raise_for_status()
+                items = self._parse_top250_page(resp.text, start_rank=offset + 1)
+                return page_idx, items
             except Exception as e:
-                print(f"[Douban] Top250 page {page} failed: {e}")
-                break
-            items = self._parse_top250_page(resp.text, start_rank=offset + 1)
-            results.extend(items)
+                print(f"[Douban] Top250 page {page_idx} failed: {e}")
+                return page_idx, []
+
+        # 10 页并发（豆瓣国内站，不走代理，6 并发即可压满）
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            futures = {pool.submit(_fetch, p): p for p in range(pages)}
+            # 按页序收集，保证排名正确
+            page_map: Dict[int, List[DoubanMovie]] = {}
+            for f in as_completed(futures):
+                page_idx, items = f.result()
+                page_map[page_idx] = items
+
+        for p in sorted(page_map.keys()):
+            results.extend(page_map[p])
             if len(results) >= limit:
                 break
         return results[:limit]

@@ -1,4 +1,4 @@
-"""YTS 搜索源：官方 API，单步，返回 hash/seeds/peers/size/quality，需拼装磁链。"""
+﻿"""YTS 搜索源：官方 API，单步，返回 hash/seeds/peers/size/quality，需拼装磁链。"""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -21,7 +21,7 @@ class YtsSource(SearchSource):
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
-        self.http = HttpClient(proxy=config.proxy, timeout=15, max_retries=1)
+        self.http = HttpClient(proxy=config.proxy, timeout=10, max_retries=1)
 
     def search(self, query: str, mode: str = "movie") -> List[TorrentResult]:
         if mode != "movie":

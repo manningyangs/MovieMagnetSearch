@@ -58,8 +58,8 @@ class DoubanMovie:
     rank: int = 0                   # Top250 排名（仅 Top250 有）
 
     def search_query(self) -> str:
-        """生成用于磁力搜索的 query（优先原标题）。"""
-        return self.original_title or self.title
+        """生成用于磁力搜索的 query（优先中文 title，让维基翻译链路把中文翻成英文）。"""
+        return self.title or self.original_title
 
 
 @dataclass

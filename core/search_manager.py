@@ -159,7 +159,8 @@ class SearchManager(QObject):
         self._sources: List[SearchSource] = []
         self._total: int = 0
         self._mode: str = "movie"
-        self._canceled: bool = False
+        self._canceled = False
+        self._positive_count = 0   # 持久化：返回非零结果的源数
         self._timer = QTimer(self)
         self._timer.setInterval(150)  # 轮询间隔
         self._timer.timeout.connect(self._poll)
@@ -179,6 +180,7 @@ class SearchManager(QObject):
         self._aggregated = []
         self._elapsed = 0
         self._canceled = False
+        self._positive_count = 0  # 每次搜索重置
         # 中文片名翻译：维基百科（免费默认）+ TMDB（配 Key 时结果优先），并行执行
         en_titles: List[str] = []
         if _has_cjk(query):
@@ -260,24 +262,33 @@ class SearchManager(QObject):
             self.source_finished.emit(name, len(results), error)
             if results:
                 self._aggregated.extend(results)
+                self._positive_count += 1
             self._futures.remove(f)
         done_count = self._total - len(self._futures)
         self.source_progress.emit(done_count, self._total)
-        # 全部完成 / 超时（45s）/ 用户停止
-        if self._canceled or not self._futures or self._elapsed > 45000:
-            self._finish(canceled=self._canceled)
 
-    def _finish(self, canceled: bool = False) -> None:
+        # 判断条件：全部完成 / 超时(35s) / 用户停止 / 已有足够结果提前收
+        if self._canceled or not self._futures or self._elapsed > 35000:
+            self._finish(canceled=self._canceled)
+            return
+
+        # 提前收：持久化计数 ≥2 个源返回非零结果，且已跑了 ≥ 10s（主流源够快了）
+        if self._positive_count >= 2 and self._elapsed >= 10000:
+            self._finish(canceled=False, early_stop=True)
+
+    def _finish(self, canceled: bool = False, early_stop: bool = False) -> None:
         self._timer.stop()
+        # 未完成的 future：标记原因后 cancel（但已在执行的请求无法中断）
+        for f in self._futures:
+            if not f.done():
+                reason = "用户停止" if canceled else "提前收" if early_stop else "超时"
+                self.source_finished.emit("?", 0, reason)
+                f.cancel()
+        self._futures = []
+        # 关 executor（等已执行中的任务跑完，但不等新任务）
         if self._executor:
             self._executor.shutdown(wait=False)
             self._executor = None
-        # 未完成的标记取消/超时
-        for f in self._futures:
-            if not f.done():
-                self.source_finished.emit("?", 0, "用户停止" if canceled else "超时")
-                f.cancel()
-        self._futures = []
         merged = _merge_results(self._aggregated)
         scored = score_results(merged, self.config.weights)
         self.source_progress.emit(self._total, self._total)

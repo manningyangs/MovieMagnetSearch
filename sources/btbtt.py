@@ -1,4 +1,4 @@
-"""BT之家搜索源：Discuz 论坛（www.1lou.me），两步取磁链。"""
+﻿"""BT之家搜索源：Discuz 论坛（www.1lou.me），两步取磁链。"""
 from __future__ import annotations
 
 import re
@@ -34,7 +34,7 @@ class BtbttSource(SearchSource):
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
-        self.http = HttpClient(proxy=config.proxy, timeout=15, max_retries=1)
+        self.http = HttpClient(proxy=config.proxy, timeout=10, max_retries=1)
 
     def search(self, query: str, mode: str = "movie") -> List[TorrentResult]:
         results: List[TorrentResult] = []

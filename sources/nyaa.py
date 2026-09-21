@@ -1,4 +1,4 @@
-"""Nyaa.si 搜索源。
+﻿"""Nyaa.si 搜索源。
 
 Nyaa 是亚洲动漫/影视资源聚合站，返回干净的 HTML 表格：
   cell0: 分类链接 (/?c=X_Y)
@@ -84,7 +84,7 @@ class NyaaSource(SearchSource):
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
-        self.http = HttpClient(proxy=config.proxy, timeout=15, max_retries=1)
+        self.http = HttpClient(proxy=config.proxy, timeout=10, max_retries=1)
 
     def search(self, query: str, mode: str = "movie") -> List[TorrentResult]:
         # c=0_0 全分类，c=3_0 是 Anime - English-translated

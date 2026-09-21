@@ -1,4 +1,4 @@
-"""1337x 搜索源：需 curl_cffi 绕 Cloudflare，搜索页→详情页两步取磁链。"""
+﻿"""1337x 搜索源：需 curl_cffi 绕 Cloudflare，搜索页→详情页两步取磁链。"""
 from __future__ import annotations
 
 import re
@@ -30,7 +30,7 @@ class One337xSource(SearchSource):
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
-        self.http = HttpClient(proxy=config.proxy, timeout=20, max_retries=1)
+        self.http = HttpClient(proxy=config.proxy, timeout=10, max_retries=1)
 
     def search(self, query: str, mode: str = "movie") -> List[TorrentResult]:
         results: List[TorrentResult] = []

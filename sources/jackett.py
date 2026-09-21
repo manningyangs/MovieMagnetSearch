@@ -1,4 +1,4 @@
-"""Jackett 搜索源：本地 Torznab API（默认 9117），聚合已配置的 tracker。"""
+﻿"""Jackett 搜索源：本地 Torznab API（默认 9117），聚合已配置的 tracker。"""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -20,7 +20,7 @@ class JackettSource(SearchSource):
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
-        self.http = HttpClient(proxy=config.proxy, timeout=20, max_retries=1)
+        self.http = HttpClient(proxy=config.proxy, timeout=15, max_retries=1)
         base = config.jackett.url.rstrip("/")
         self.api_key = config.jackett.api_key
         self.search_url = f"{base}/api/v2.0/indexers/all/results/torznab/api"

@@ -159,6 +159,7 @@ class SearchManager(QObject):
         self._sources: List[SearchSource] = []
         self._total: int = 0
         self._mode: str = "movie"
+        self._canceled: bool = False
         self._timer = QTimer(self)
         self._timer.setInterval(150)  # 轮询间隔
         self._timer.timeout.connect(self._poll)
@@ -177,6 +178,7 @@ class SearchManager(QObject):
         self._mode = mode
         self._aggregated = []
         self._elapsed = 0
+        self._canceled = False
         # 中文片名翻译：维基百科（免费默认）+ TMDB（配 Key 时结果优先），并行执行
         en_titles: List[str] = []
         if _has_cjk(query):
@@ -235,6 +237,16 @@ class SearchManager(QObject):
             executor.shutdown(wait=False)
         return candidates
 
+    def stop(self) -> None:
+        """用户主动停止搜索：取消未开始的任务，已发出的 HTTP 请求无法中断，
+        但结果会在 _finish() 时被忽略。"""
+        if not self._futures and not self._executor:
+            return
+        self._canceled = True
+        for f in list(self._futures):
+            f.cancel()  # 还没开始跑的能取消，已在执行的不会停
+        self._finish(canceled=True)
+
     @Slot()
     def _poll(self) -> None:
         self._elapsed += self._timer.interval()
@@ -251,19 +263,19 @@ class SearchManager(QObject):
             self._futures.remove(f)
         done_count = self._total - len(self._futures)
         self.source_progress.emit(done_count, self._total)
-        # 全部完成或超时（45s）
-        if not self._futures or self._elapsed > 45000:
-            self._finish()
+        # 全部完成 / 超时（45s）/ 用户停止
+        if self._canceled or not self._futures or self._elapsed > 45000:
+            self._finish(canceled=self._canceled)
 
-    def _finish(self) -> None:
+    def _finish(self, canceled: bool = False) -> None:
         self._timer.stop()
         if self._executor:
             self._executor.shutdown(wait=False)
             self._executor = None
-        # 未完成的标记超时
+        # 未完成的标记取消/超时
         for f in self._futures:
             if not f.done():
-                self.source_finished.emit("?", 0, "超时")
+                self.source_finished.emit("?", 0, "用户停止" if canceled else "超时")
                 f.cancel()
         self._futures = []
         merged = _merge_results(self._aggregated)

@@ -106,12 +106,16 @@ class MainWindow(QMainWindow):
         self.input.returnPressed.connect(self._do_search)
         self.search_btn = QPushButton("搜索")
         self.search_btn.clicked.connect(self._do_search)
+        self.stop_btn = QPushButton("停止")
+        self.stop_btn.setEnabled(False)
+        self.stop_btn.clicked.connect(self._stop_search)
         self.settings_btn = QPushButton("设置")
         self.settings_btn.clicked.connect(self._open_settings)
         bar.addWidget(QLabel("类型:"))
         bar.addWidget(self.mode_combo)
         bar.addWidget(self.input, 1)
         bar.addWidget(self.search_btn)
+        bar.addWidget(self.stop_btn)
         bar.addWidget(self.settings_btn)
         root.addLayout(bar)
 
@@ -193,10 +197,20 @@ class MainWindow(QMainWindow):
             self.table.set_results([])
         else:
             self.tree.clear()
-        self.search_btn.setEnabled(False)
-        self.input.setEnabled(False)
+        self._set_search_running(True)
         self.status.showMessage(f"正在搜索({MODE_LABELS[mode]}): {query} …")
         self.search_manager.search(query, mode=mode)
+
+    def _stop_search(self) -> None:
+        self.search_manager.stop()
+
+    def _set_search_running(self, running: bool) -> None:
+        """统一管理各按钮的启用/禁用状态。"""
+        self.search_btn.setEnabled(not running)
+        self.stop_btn.setEnabled(running)
+        self.input.setEnabled(not running)
+        self.mode_combo.setEnabled(not running)
+        self.settings_btn.setEnabled(not running)
 
     def _on_search_started(self, total: int) -> None:
         self._total_sources = total
@@ -219,8 +233,7 @@ class MainWindow(QMainWindow):
             self.status.showMessage(f"{name} 完成，命中 {count} 条")
 
     def _on_search_finished(self, results: List[TorrentResult]) -> None:
-        self.search_btn.setEnabled(True)
-        self.input.setEnabled(True)
+        self._set_search_running(False)
         self.progress_bar.setValue(self._total_sources)
         self.progress_bar.setFormat("完成")
         if self._mode == "movie":
@@ -237,8 +250,7 @@ class MainWindow(QMainWindow):
             self.status.showMessage(f"搜索完成，共 {len(results)} 条，已按剧集分组")
 
     def _on_search_failed(self, msg: str) -> None:
-        self.search_btn.setEnabled(True)
-        self.input.setEnabled(True)
+        self._set_search_running(False)
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(False)
         self.progress_label.setText(f"搜索失败: {msg}")

@@ -32,7 +32,7 @@ COVER_CACHE_DIR = os.path.join(
 class DoubanLoadWorker(QObject):
     """后台线程跑豆瓣榜单/搜索请求。"""
     finished = Signal(list, str)      # (items, error)
-    partial = Signal(list)            # 增量（Top250 专用，每页完成就 emit 累计列表）
+    partial = Signal(int, list)       # (start_rank, items_this_page) — Top250 专用
 
     def __init__(self, action: str, query: str = "") -> None:
         super().__init__()
@@ -44,9 +44,8 @@ class DoubanLoadWorker(QObject):
         client = DoubanClient()
         try:
             if self.action == "top250":
-                def _emit_partial(page_idx, items_so_far):
-                    # 注意：这个回调跑在 worker 线程，emit 本身线程安全（Qt 会排队到 UI 线程）
-                    self.partial.emit(list(items_so_far))
+                def _emit_partial(start_rank, items_this_page):
+                    self.partial.emit(start_rank, list(items_this_page))
                 items = client.get_top250(limit=250, on_page=_emit_partial)
                 self.finished.emit(items, "")
             elif self.action == "search":
@@ -465,36 +464,58 @@ class DoubanTab(QWidget):
         self._thread.finished.connect(self._worker.deleteLater)
         self._thread.start()
 
-    @Slot(list)
-    def _on_list_partial(self, items: list) -> None:
-        """增量渲染：Top250 每页完成就追加卡片到末尾。"""
-        # 只追未见过的新卡片（已见的保持不动，封面加载也不会被打断）
-        existing_ids = set(self._cards_by_id.keys())
-        for movie in items:
-            if movie.douban_id in existing_ids:
+    @Slot(int, list)
+    def _on_list_partial(self, start_rank: int, items_this_page: list) -> None:
+        """增量渲染：并发下页完成是乱序的，按 movie.rank 插到正确位置。"""
+        # 先建 rank → widget_index 映射
+        rank_to_idx: Dict[int, int] = {}
+        for mid, card in self._cards_by_id.items():
+            r = getattr(card.movie, "rank", 0)
+            if r:
+                rank_to_idx[r] = self.list_layout.indexOf(card)
+
+        for movie in items_this_page:
+            if movie.douban_id in self._cards_by_id:
                 continue
             card = MovieCard(movie, self._covers)
             card.search_requested.connect(self.search_requested.emit)
             card.detail_requested.connect(self._on_detail_requested)
             self._cards_by_id[movie.douban_id] = card
-            self.list_layout.insertWidget(self.list_layout.count() - 1, card)
-            existing_ids.add(movie.douban_id)
+            # 找插入点：排在所有 rank < 当前 movie.rank 的卡片之后
+            rank = getattr(movie, "rank", start_rank)
+            insert_at = self.list_layout.count() - 1  # 默认末尾（stretch 前）
+            for existing_rank in sorted(rank_to_idx.keys()):
+                if existing_rank > rank:
+                    insert_at = rank_to_idx[existing_rank]
+                    break
+            self.list_layout.insertWidget(insert_at, card)
+            rank_to_idx[rank] = insert_at
+            # 插入后，后面的 rank_to_idx 值都 +1
+            for r in list(rank_to_idx.keys()):
+                if rank_to_idx[r] >= insert_at and r != rank:
+                    rank_to_idx[r] += 1
+
         self.status_label.setText(f"加载中… 已显示 {len(self._cards_by_id)} 部")
 
     @Slot(list, str)
     def _on_list_finished(self, items: list, error: str) -> None:
-        # 最后一次 partial 可能漏了最后几页（极端并发乱序），这里确保完整
         if error:
             self.status_label.setText(f"加载失败: {error}")
             return
         if not items:
             self.status_label.setText("没有找到匹配的电影")
             return
-        # 补遗漏
-        existing_ids = set(self._cards_by_id.keys())
-        for movie in items:
-            if movie.douban_id in existing_ids:
-                continue
+        # 把 partial 可能没插到正确位置的卡片整体按 rank 排一遍
+        items_sorted = sorted(items, key=lambda m: getattr(m, "rank", 9999))
+        # 清掉现有 widgets（保留 _cards_by_id 以复用已加载的封面）
+        for i in range(self.list_layout.count() - 1, -1, -1):
+            w = self.list_layout.itemAt(i).widget()
+            if w:
+                self.list_layout.removeWidget(w)
+                w.setParent(None)
+        # 按正确顺序重新插入
+        self._cards_by_id.clear()
+        for movie in items_sorted:
             card = MovieCard(movie, self._covers)
             card.search_requested.connect(self.search_requested.emit)
             card.detail_requested.connect(self._on_detail_requested)

@@ -87,8 +87,9 @@ class DoubanClient:
         """爬取豆瓣 Top 250 榜单（10 页并行抓取）。
 
         Args:
-            on_page: 可选回调 `(page_idx, items_so_far)`，每页完成就调一次，
-                用于 UI 边抓边渲染（增量显示）。
+            on_page: 可选回调 `(start_rank, items_this_page)`，每页完成就调一次。
+                注意 items 里每部电影已有正确 rank 字段，UI 应按 rank 插入列表，
+                不要靠回调顺序——并发下页完成顺序是乱的。
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -98,31 +99,27 @@ class DoubanClient:
 
         def _fetch(page_idx: int):
             offset = page_idx * per_page
+            start_rank = offset + 1
             url = f"https://movie.douban.com/top250?start={offset}"
             try:
                 resp = self._session.get(url, headers=_TOP250_HEADERS, timeout=self._timeout)
                 resp.raise_for_status()
-                items = self._parse_top250_page(resp.text, start_rank=offset + 1)
-                return page_idx, items
+                items = self._parse_top250_page(resp.text, start_rank=start_rank)
+                return page_idx, start_rank, items
             except Exception as e:
                 print(f"[Douban] Top250 page {page_idx} failed: {e}")
-                return page_idx, []
+                return page_idx, offset + 1, []
 
         # 10 页并发（豆瓣国内站，不走代理，6 并发即可压满）
         with ThreadPoolExecutor(max_workers=6) as pool:
             futures = {pool.submit(_fetch, p): p for p in range(pages)}
-            # 按页序收集，保证排名正确
             page_map: Dict[int, List[DoubanMovie]] = {}
             for f in as_completed(futures):
-                page_idx, items = f.result()
+                page_idx, start_rank, items = f.result()
                 page_map[page_idx] = items
-                # 排序后拼出累计结果 + 回调
-                results_so_far: List[DoubanMovie] = []
-                for p in sorted(page_map.keys()):
-                    results_so_far.extend(page_map[p])
                 if on_page and callable(on_page):
                     try:
-                        on_page(page_idx, list(results_so_far))
+                        on_page(start_rank, items)  # 只传"这一页"的 items，UI 按 rank 插
                     except Exception:
                         pass
 

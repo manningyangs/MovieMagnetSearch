@@ -25,7 +25,10 @@
 
 ## 🖼️ 截图
 
-（待补充——欢迎提交 PR）
+<img width="1197" height="611" alt="image" src="https://github.com/user-attachments/assets/d2d2c875-5e1e-4817-b052-49be21409c2a" />
+<img width="458" height="650" alt="image" src="https://github.com/user-attachments/assets/a7e9b3e7-1e67-4641-894c-825377b8f08a" />
+
+
 
 ---
 

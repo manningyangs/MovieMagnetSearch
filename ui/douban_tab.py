@@ -507,12 +507,13 @@ class DoubanTab(QWidget):
             return
         # 把 partial 可能没插到正确位置的卡片整体按 rank 排一遍
         items_sorted = sorted(items, key=lambda m: getattr(m, "rank", 9999))
-        # 清掉现有 widgets（保留 _cards_by_id 以复用已加载的封面）
+        # 清掉现有 widgets（旧卡片不再需要，直接销毁）
         for i in range(self.list_layout.count() - 1, -1, -1):
             w = self.list_layout.itemAt(i).widget()
             if w:
                 self.list_layout.removeWidget(w)
-                w.setParent(None)
+                w.hide()
+                w.deleteLater()
         # 按正确顺序重新插入
         self._cards_by_id.clear()
         for movie in items_sorted:

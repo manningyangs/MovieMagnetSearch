@@ -1,0 +1,24 @@
+{
+  "jackett": {
+    "enabled": false,
+    "url": "http://127.0.0.1:9117",
+    "api_key": ""
+  },
+  "proxy": "http://127.0.0.1:7897",
+  "sources": {
+    "yts": true,
+    "piratebay": true,
+    "nyaa": true,
+    "one337x": true,
+    "btbtt": true,
+    "dytt": true
+  },
+  "weights": {
+    "seeders": 0.5,
+    "resolution": 0.3,
+    "freshness": 0.2
+  },
+  "tmdb_api_key": "",
+  "window_width": 1200,
+  "window_height": 557
+}

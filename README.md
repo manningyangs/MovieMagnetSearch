@@ -5,30 +5,58 @@
 
 🌐 English | [简体中文](#)
 
-一款基于 PySide6 的磁力链接搜索桌面工具，支持多源并发搜索、中文片名自动翻译、剧集/综艺按集分组展示。
+一款基于 PySide6 的磁力链接搜索桌面工具，支持多源并发搜索、中文片名自动翻译、剧集按集分组，以及豆瓣 Top 250 榜单发现。
 
 ---
 
 ## ✨ 主要特性
 
+### 🔍 磁力搜索
 - **多源并发搜索**：The Pirate Bay (apibay API) · YTS · Nyaa.si · 1337x · BT之家 · 电影天堂 · 自定义 Jackett
 - **中文片名自动翻译**：维基百科免费翻译（默认启用），可额外配置 TMDB API Key 获得更精确结果
 - **电影 / 剧集双模式**：剧集模式下按 S01E05、S01 Complete 等自动分组展示
+- **搜索停止按钮**：搜索进行中可随时停止
 - **智能评分排序**：综合做种数、分辨率、发布时间加权评分
 - **相关性过滤**：自动剔除无关热门默认结果
 - **磁力链接一键复制**：双击或右键快速复制，也支持复制 info_hash、打开来源页面
-- **代理支持**：HTTP / SOCKS5 代理
+- **代理支持**：HTTP / SOCKS5 代理（豆瓣国内源自动绕过代理）
 - **搜索进度提示**：实时显示已完成源数和命中条数
+
+### 🎬 豆瓣发现（v0.2.0 新增）
+- **豆瓣 Top 250 榜单**：应用启动自动加载，封面异步下载并本地缓存
+- **豆瓣关键词搜索**：走豆瓣 subject_suggest 接口，返回电影 + 剧集
+- **卡片式浏览**：排名 / 评分 / 导演 / 主演 / 简介 一目了然
+- **一键跳磁力搜索**：豆瓣卡片上点"搜磁力"自动切到磁力 Tab 并发起搜索
+- **打开豆瓣详情页**：卡片上点"打开豆瓣"直接跳浏览器
+- **零额外依赖**：直连 movie.douban.com，无需 API Key
+
+### 🖥️ 界面
+- **双 Tab 布局**：🔍 磁力搜索 + 🎬 豆瓣发现，互不干扰
+
+### 📦 其他
 - **Windows 可执行文件**：打包好的 exe 直接运行，无需 Python 环境
 
 ---
 
 ## 🖼️ 截图
 
-<img width="1197" height="611" alt="image" src="https://github.com/user-attachments/assets/d2d2c875-5e1e-4817-b052-49be21409c2a" />
-<img width="458" height="650" alt="image" src="https://github.com/user-attachments/assets/a7e9b3e7-1e67-4641-894c-825377b8f08a" />
+<details>
+<summary>磁力搜索</summary>
 
+<img width="1197" height="611" alt="磁力搜索" src="https://github.com/user-attachments/assets/d2d2c875-5e1e-4817-b052-49be21409c2a" />
+</details>
 
+<details>
+<summary>剧集分组</summary>
+
+<img width="458" height="650" alt="剧集分组" src="https://github.com/user-attachments/assets/a7e9b3e7-1e67-4641-894c-825377b8f08a" />
+</details>
+
+<details>
+<summary>豆瓣发现（示意）</summary>
+
+豆瓣发现 Tab 以卡片形式展示 Top 250，每张卡片含排名、评分、导演、封面图及"搜磁力" / "打开豆瓣"两个操作按钮。
+</details>
 
 ---
 
@@ -71,7 +99,6 @@ python main.py
 ### 打包为 exe（可选）
 
 ```bash
-# Windows
 pip install pyinstaller
 pyinstaller MovieMagnetSearch.spec --noconfirm
 # 产物在 dist/MovieMagnetSearch/MovieMagnetSearch.exe
@@ -91,7 +118,7 @@ pyinstaller MovieMagnetSearch.spec --noconfirm
 | **TMDB API Key** | 可选，在 [themoviedb.org](https://www.themoviedb.org/settings/api) 免费注册后获取，获得更精确的片名翻译 |
 | **评分权重** | 自定义做种数 / 分辨率 / 发布时间的评分占比 |
 
-配置保存在程序运行目录下的 `config.json`（不会被提交到 git）。
+配置保存在程序运行目录下的 `config.json`（已 gitignore）。
 
 ---
 
@@ -105,8 +132,9 @@ movies_search/
 ├── requirements.txt
 ├── core/
 │   ├── models.py           # TorrentResult / Resolution
-│   ├── search_manager.py   # 多源并发 + 聚合 + 评分
-│   ├── http_client.py      # 统一 HTTP 客户端（requests / curl_cffi）
+│   ├── search_manager.py   # 多源并发 + 聚合 + 评分 + stop()
+│   ├── douban.py           # 豆瓣爬虫（Top250 / 搜索 / 详情）
+│   ├── http_client.py      # 统一 HTTP 客户端
 │   ├── scorer.py           # 质量评分
 │   ├── tmdb.py             # TMDB 片名翻译
 │   └── wikipedia.py        # 维基百科免费片名翻译
@@ -120,7 +148,8 @@ movies_search/
 │   ├── dytt.py
 │   └── jackett.py
 ├── ui/
-│   ├── main_window.py      # 主窗口（电影/剧集双模式）
+│   ├── main_window.py      # QTabWidget 双 Tab 主窗口
+│   ├── douban_tab.py       # 豆瓣发现 Tab（Top250 / 搜索 / 卡片 / 封面缓存）
 │   ├── results_table.py    # 电影模式扁平表格
 │   └── settings_dialog.py  # 设置对话框
 └── utils/
@@ -129,6 +158,10 @@ movies_search/
     ├── resolution.py       # 分辨率枚举
     └── magnet.py           # 磁力链接工具
 ```
+
+### 数据缓存
+
+豆瓣封面图自动缓存到 `~/.movie_search/cache/covers/`，下次启动秒显。
 
 ---
 

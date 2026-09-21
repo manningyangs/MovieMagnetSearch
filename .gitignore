@@ -1,0 +1,40 @@
+# ======= Python =======
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+*.whl
+.eggs/
+.pytest_cache/
+.mypy_cache/
+
+# ======= PyInstaller =======
+build/
+dist/
+*.spec.bak
+
+# ======= 配置与日志 =======
+config.json          # 含用户本地代理/源开关，勿提交
+*.log
+logs/
+_probe_*.py          # 临时探测脚本（开发期用）
+_probe_*.txt
+
+# ======= 编辑器/IDE =======
+.idea/
+.vscode/
+*.swp
+*.swo
+.trae/              # TRAE 本地工作区数据
+
+# ======= 系统 =======
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ======= 虚拟环境 =======
+venv/
+.venv/
+env/
+.env

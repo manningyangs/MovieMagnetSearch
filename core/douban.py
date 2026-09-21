@@ -83,8 +83,13 @@ class DoubanClient:
 
     # ---------- Top 250 ----------
 
-    def get_top250(self, limit: int = 250) -> List[DoubanMovie]:
-        """爬取豆瓣 Top 250 榜单（10 页并行抓取）。"""
+    def get_top250(self, limit: int = 250, on_page=None) -> List[DoubanMovie]:
+        """爬取豆瓣 Top 250 榜单（10 页并行抓取）。
+
+        Args:
+            on_page: 可选回调 `(page_idx, items_so_far)`，每页完成就调一次，
+                用于 UI 边抓边渲染（增量显示）。
+        """
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         results: List[DoubanMovie] = []
@@ -111,6 +116,15 @@ class DoubanClient:
             for f in as_completed(futures):
                 page_idx, items = f.result()
                 page_map[page_idx] = items
+                # 排序后拼出累计结果 + 回调
+                results_so_far: List[DoubanMovie] = []
+                for p in sorted(page_map.keys()):
+                    results_so_far.extend(page_map[p])
+                if on_page and callable(on_page):
+                    try:
+                        on_page(page_idx, list(results_so_far))
+                    except Exception:
+                        pass
 
         for p in sorted(page_map.keys()):
             results.extend(page_map[p])

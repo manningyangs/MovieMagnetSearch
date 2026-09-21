@@ -32,6 +32,7 @@ COVER_CACHE_DIR = os.path.join(
 class DoubanLoadWorker(QObject):
     """后台线程跑豆瓣榜单/搜索请求。"""
     finished = Signal(list, str)      # (items, error)
+    partial = Signal(list)            # 增量（Top250 专用，每页完成就 emit 累计列表）
 
     def __init__(self, action: str, query: str = "") -> None:
         super().__init__()
@@ -43,7 +44,10 @@ class DoubanLoadWorker(QObject):
         client = DoubanClient()
         try:
             if self.action == "top250":
-                items = client.get_top250(limit=250)
+                def _emit_partial(page_idx, items_so_far):
+                    # 注意：这个回调跑在 worker 线程，emit 本身线程安全（Qt 会排队到 UI 线程）
+                    self.partial.emit(list(items_so_far))
+                items = client.get_top250(limit=250, on_page=_emit_partial)
                 self.finished.emit(items, "")
             elif self.action == "search":
                 items = client.search(self.query, max_results=30)
@@ -455,27 +459,48 @@ class DoubanTab(QWidget):
         self._worker = DoubanLoadWorker(action, query)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
+        self._worker.partial.connect(self._on_list_partial)
         self._worker.finished.connect(self._on_list_finished)
         self._worker.finished.connect(self._thread.quit)
         self._thread.finished.connect(self._worker.deleteLater)
         self._thread.start()
 
-    @Slot(list, str)
-    def _on_list_finished(self, items: list, error: str) -> None:
-        if error:
-            self.status_label.setText(f"加载失败: {error}")
-            return
-        self._clear_list()
-        if not items:
-            self.status_label.setText("没有找到匹配的电影")
-            return
-        self.status_label.setText(f"共 {len(items)} 部电影")
+    @Slot(list)
+    def _on_list_partial(self, items: list) -> None:
+        """增量渲染：Top250 每页完成就追加卡片到末尾。"""
+        # 只追未见过的新卡片（已见的保持不动，封面加载也不会被打断）
+        existing_ids = set(self._cards_by_id.keys())
         for movie in items:
+            if movie.douban_id in existing_ids:
+                continue
             card = MovieCard(movie, self._covers)
             card.search_requested.connect(self.search_requested.emit)
             card.detail_requested.connect(self._on_detail_requested)
             self._cards_by_id[movie.douban_id] = card
             self.list_layout.insertWidget(self.list_layout.count() - 1, card)
+            existing_ids.add(movie.douban_id)
+        self.status_label.setText(f"加载中… 已显示 {len(self._cards_by_id)} 部")
+
+    @Slot(list, str)
+    def _on_list_finished(self, items: list, error: str) -> None:
+        # 最后一次 partial 可能漏了最后几页（极端并发乱序），这里确保完整
+        if error:
+            self.status_label.setText(f"加载失败: {error}")
+            return
+        if not items:
+            self.status_label.setText("没有找到匹配的电影")
+            return
+        # 补遗漏
+        existing_ids = set(self._cards_by_id.keys())
+        for movie in items:
+            if movie.douban_id in existing_ids:
+                continue
+            card = MovieCard(movie, self._covers)
+            card.search_requested.connect(self.search_requested.emit)
+            card.detail_requested.connect(self._on_detail_requested)
+            self._cards_by_id[movie.douban_id] = card
+            self.list_layout.insertWidget(self.list_layout.count() - 1, card)
+        self.status_label.setText(f"共 {len(items)} 部电影")
 
     # ---------- 详情加载 ----------
 

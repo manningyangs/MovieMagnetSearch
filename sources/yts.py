@@ -1,4 +1,7 @@
-﻿"""YTS 搜索源：官方 API，单步，返回 hash/seeds/peers/size/quality，需拼装磁链。"""
+﻿"""YTS 搜索源：官方 API，自动切换可用镜像（yts.ag / yts.lt / yts.mx）。
+
+yts.mx 在某些代理环境下被封（SSL EOF），做了多域 fallback。
+"""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -11,8 +14,11 @@ from sources.base import SearchSource
 from utils.magnet import build_magnet, format_size
 from utils.resolution import detect_resolution
 
-# 主域对无浏览器 UA 的请求可能被拒，用镜像/主域均可
-YTS_API = "https://yts.mx/api/v2/list_movies.json"
+YTS_API_PATHS = [
+    "https://yts.ag/api/v2/list_movies.json",
+    "https://yts.lt/api/v2/list_movies.json",
+    "https://yts.mx/api/v2/list_movies.json",
+]
 
 
 class YtsSource(SearchSource):
@@ -21,13 +27,21 @@ class YtsSource(SearchSource):
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
+        # 用 base_url 自己拼完整 URL，因为需要尝试多个域
         self.http = HttpClient(proxy=config.proxy, timeout=10, max_retries=1)
 
     def search(self, query: str, mode: str = "movie") -> List[TorrentResult]:
         if mode != "movie":
             return []  # YTS 只提供电影
         params = {"query_term": query, "limit": 50}
-        data = self.http.get_json(YTS_API, params=params)
+        data = None
+        for api_url in YTS_API_PATHS:
+            try:
+                data = self.http.get_json(api_url, params=params)
+                if data and data.get("status") == "ok":
+                    break
+            except Exception:
+                continue
         if not data or data.get("status") != "ok":
             return []
         movies = (data.get("data") or {}).get("movies") or []
@@ -40,11 +54,9 @@ class YtsSource(SearchSource):
                     continue
                 size_bytes = int(t.get("size_bytes") or 0)
                 quality = t.get("quality") or ""
-                # 标题用 电影名 + quality + type 组合，便于识别分辨率
                 display_title = f"{title_long} [{quality}]"
                 resolution = detect_resolution(display_title)
                 if resolution == Resolution.UNKNOWN and quality:
-                    # quality 字段本身可能含 1080p/720p/2160p
                     resolution = detect_resolution(quality) or Resolution.UNKNOWN
                 date_unix = t.get("date_uploaded_unix")
                 upload_date = None

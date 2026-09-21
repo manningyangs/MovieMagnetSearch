@@ -135,7 +135,7 @@ class ResultsModel(QAbstractTableModel):
 
 
 class ResultsTable(QWidget):
-    """结果表格容器：标题提示 + 表格视图。"""
+    """结果表格容器：标题提示 + 表格视图 + 骨架屏覆盖层。"""
 
     copy_requested = Signal(str)  # 发出要复制的磁力链接
 
@@ -144,6 +144,7 @@ class ResultsTable(QWidget):
         self._build_ui()
 
     def _build_ui(self) -> None:
+        from PySide6.QtCore import QPropertyAnimation, QEasingCurve
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
@@ -170,6 +171,12 @@ class ResultsTable(QWidget):
         filter_row.addStretch(1)
         layout.addLayout(filter_row)
 
+        # 表格 + 骨架屏（在同一位置，骨架屏覆盖在上面）
+        self._table_stack = QWidget()
+        stack_layout = QVBoxLayout(self._table_stack)
+        stack_layout.setContentsMargins(0, 0, 0, 0)
+        stack_layout.setSpacing(0)
+
         self.view = QTableView()
         self.view.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.view.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -195,11 +202,69 @@ class ResultsTable(QWidget):
         self.view.doubleClicked.connect(self._on_double_click)
         self.view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.view.customContextMenuRequested.connect(self._on_context_menu)
-        layout.addWidget(self.view)
+        stack_layout.addWidget(self.view)
+
+        # --- 骨架屏覆盖层（默认隐藏）---
+        self._skeleton = QWidget(self._table_stack)
+        self._skeleton.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._skeleton.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self._skeleton.setStyleSheet("background: #ffffff;")
+        skel_layout = QVBoxLayout(self._skeleton)
+        skel_layout.setContentsMargins(4, 4, 4, 4)
+        skel_layout.setSpacing(6)
+        # 12 行灰色占位条（每根 QLabel 用 QPropertyAnimation 做闪烁）
+        self._skeleton_rows = []
+        for _ in range(12):
+            bar = QLabel()
+            bar.setFixedHeight(28)
+            bar.setStyleSheet("background: #eeeeee; border-radius: 4px;")
+            skel_layout.addWidget(bar)
+            self._skeleton_rows.append(bar)
+        skel_layout.addStretch(1)
+        self._skeleton.hide()
+
+        layout.addWidget(self._table_stack, 1)
+
+        # 骨架屏 shimmer 动画（渐变从 #eeeeee → #f4f4f4 → #eeeeee 循环）
+        self._shimmer_anims = []
+        for bar in self._skeleton_rows:
+            from PySide6.QtCore import QPropertyAnimation
+            anim = QPropertyAnimation(bar, b"styleSheet")
+            anim.setDuration(1400)
+            anim.setLoopCount(-1)
+            anim.setKeyValueAt(0,     "background: #eeeeee; border-radius: 4px;")
+            anim.setKeyValueAt(0.5,   "background: #f4f4f4; border-radius: 4px;")
+            anim.setKeyValueAt(1,     "background: #eeeeee; border-radius: 4px;")
+            self._shimmer_anims.append(anim)
+
+    # --- 骨架屏 API ---
+
+    def show_skeleton(self, n_rows: int = 8) -> None:
+        """显示骨架屏并启动 shimmer 动画。"""
+        for i, bar in enumerate(self._skeleton_rows):
+            bar.setVisible(i < n_rows)
+        self._skeleton.raise_()
+        self._skeleton.show()
+        for anim in self._shimmer_anims:
+            anim.start()
+
+    def hide_skeleton(self) -> None:
+        """隐藏骨架屏并停止动画。"""
+        for anim in self._shimmer_anims:
+            anim.stop()
+        self._skeleton.hide()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # 保持骨架屏覆盖整个表格区域
+        self._skeleton.setGeometry(self._table_stack.rect())
+
+    # --- 数据 ---
 
     def set_results(self, results: List[TorrentResult]) -> None:
         self._all_rows = list(results)
         self.model.set_rows(results)
+        self.hide_skeleton()  # 有数据了就藏骨架屏
         self.view.resizeColumnsToContents()
         self.view.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
 

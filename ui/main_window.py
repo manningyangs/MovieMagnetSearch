@@ -249,6 +249,9 @@ class MainWindow(QMainWindow):
         self.progress_bar.setFormat("已完成 %v/%m 个源")
         self.progress_bar.setTextVisible(True)
         self.progress_label.setText(f"正在搜索: {self.input.text().strip()} …（0/{total} 个源完成）")
+        # 骨架屏：电影模式才显示（TV 分组不一样）
+        if self._mode == "movie":
+            self.table.show_skeleton(8)
 
     def _on_source_progress(self, done: int, total: int) -> None:
         self._total_sources = total

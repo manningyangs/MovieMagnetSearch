@@ -8,7 +8,9 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import os
 import re
+import time
 from dataclasses import dataclass, field
 from typing import List, Optional
 from urllib.parse import urljoin
@@ -39,6 +41,11 @@ _DETAIL_HEADERS = {
     "Accept-Language": "zh-CN,zh;q=0.9",
     "Referer": "https://movie.douban.com/",
 }
+
+_TOP250_CACHE_PATH = os.path.join(
+    os.path.expanduser("~"), ".movie_search", "cache", "top250.json"
+)
+_TOP250_CACHE_TTL = 24 * 3600  # 24 小时
 
 
 @dataclass
@@ -84,14 +91,17 @@ class DoubanClient:
     # ---------- Top 250 ----------
 
     def get_top250(self, limit: int = 250, on_page=None) -> List[DoubanMovie]:
-        """爬取豆瓣 Top 250 榜单（10 页并行抓取）。
-
-        Args:
-            on_page: 可选回调 `(start_rank, items_this_page)`，每页完成就调一次。
-                注意 items 里每部电影已有正确 rank 字段，UI 应按 rank 插入列表，
-                不要靠回调顺序——并发下页完成顺序是乱的。
-        """
+        """爬取豆瓣 Top 250 榜单（10 页并行抓取 + 本地 JSON 缓存 24h）。"""
         from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # ---- 缓存命中 → 跳过网络 ----
+        cached = self._try_load_top250_cache()
+        if cached is not None:
+            if on_page and callable(on_page):
+                per_page = 25
+                for i in range(0, len(cached), per_page):
+                    on_page(i + 1, cached[i:i + per_page])
+            return cached[:limit]
 
         results: List[DoubanMovie] = []
         per_page = 25
@@ -127,7 +137,39 @@ class DoubanClient:
             results.extend(page_map[p])
             if len(results) >= limit:
                 break
-        return results[:limit]
+        results = results[:limit]
+        self._save_top250_cache(results)
+        return results
+
+    # ---------- Top250 缓存 ----------
+
+    def _try_load_top250_cache(self) -> Optional[List[DoubanMovie]]:
+        """读本地 JSON 缓存，过期或损坏返回 None。"""
+        try:
+            if not os.path.exists(_TOP250_CACHE_PATH):
+                return None
+            mtime = os.path.getmtime(_TOP250_CACHE_PATH)
+            if time.time() - mtime > _TOP250_CACHE_TTL:
+                return None
+            with open(_TOP250_CACHE_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return [DoubanMovie(**item) for item in data]
+        except Exception:
+            return None
+
+    def _save_top250_cache(self, items: List[DoubanMovie]) -> None:
+        """序列化 Top250 到本地 JSON。"""
+        try:
+            os.makedirs(os.path.dirname(_TOP250_CACHE_PATH), exist_ok=True)
+            data = [
+                {k: list(v) if isinstance(v, list) else v
+                 for k, v in m.__dict__.items()}
+                for m in items
+            ]
+            with open(_TOP250_CACHE_PATH, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[Douban] Top250 cache save failed: {e}")
 
     def _parse_top250_page(self, html_text: str, start_rank: int) -> List[DoubanMovie]:
         soup = BeautifulSoup(html_text, "html.parser")
